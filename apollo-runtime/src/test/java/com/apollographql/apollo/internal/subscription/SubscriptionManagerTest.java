@@ -9,6 +9,7 @@ import com.apollographql.apollo.api.ResponseReader;
 import com.apollographql.apollo.api.ScalarType;
 import com.apollographql.apollo.api.Subscription;
 import com.apollographql.apollo.api.internal.UnmodifiableMapBuilder;
+import com.apollographql.apollo.internal.cache.normalized.NoOpApolloStore;
 import com.apollographql.apollo.response.CustomTypeAdapter;
 import com.apollographql.apollo.response.ScalarTypeAdapters;
 import com.apollographql.apollo.subscription.OperationClientMessage;
@@ -39,7 +40,7 @@ public class SubscriptionManagerTest {
   @Before public void setUp() {
     subscriptionTransportFactory = new MockSubscriptionTransportFactory();
     subscriptionManager = new RealSubscriptionManager(new ScalarTypeAdapters(Collections.<ScalarType, CustomTypeAdapter>emptyMap()),
-        subscriptionTransportFactory, Collections.<String, Object>emptyMap(), new MockExecutor(), connectionHeartbeatTimeoutMs);
+        subscriptionTransportFactory, Collections.<String, Object>emptyMap(), new MockExecutor(), new NoOpApolloStore(), connectionHeartbeatTimeoutMs);
     subscriptionManager.addOnStateChangeListener(onStateChangeListener);
     assertThat(subscriptionTransportFactory.subscriptionTransport).isNotNull();
     assertThat(subscriptionManager.state).isEqualTo(RealSubscriptionManager.State.DISCONNECTED);

@@ -3,8 +3,16 @@ package com.apollographql.apollo.internal.subscription;
 import com.apollographql.apollo.api.Response;
 import com.apollographql.apollo.api.ResponseFieldMapper;
 import com.apollographql.apollo.api.Subscription;
+import com.apollographql.apollo.cache.normalized.ApolloStore;
+import com.apollographql.apollo.api.internal.Function;
+import com.apollographql.apollo.api.internal.Optional;
+import com.apollographql.apollo.cache.CacheHeaders;
+import com.apollographql.apollo.cache.normalized.Record;
 import com.apollographql.apollo.exception.ApolloNetworkException;
 import com.apollographql.apollo.internal.ResponseFieldMapperFactory;
+import com.apollographql.apollo.internal.cache.normalized.ResponseNormalizer;
+import com.apollographql.apollo.internal.cache.normalized.Transaction;
+import com.apollographql.apollo.internal.cache.normalized.WriteableStore;
 import com.apollographql.apollo.response.OperationResponseParser;
 import com.apollographql.apollo.response.ScalarTypeAdapters;
 import com.apollographql.apollo.subscription.OperationClientMessage;
@@ -15,14 +23,19 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+
+import javax.annotation.Nullable;
 
 import static com.apollographql.apollo.api.internal.Utils.checkNotNull;
 
@@ -38,6 +51,7 @@ public final class RealSubscriptionManager implements SubscriptionManager {
   volatile State state = State.DISCONNECTED;
   final AutoReleaseTimer timer = new AutoReleaseTimer();
 
+  private final ApolloStore apolloStore;
   private final ScalarTypeAdapters scalarTypeAdapters;
   private final SubscriptionTransport transport;
   private Map<String, Object> connectionParams;
@@ -63,11 +77,12 @@ public final class RealSubscriptionManager implements SubscriptionManager {
 
   public RealSubscriptionManager(@NotNull ScalarTypeAdapters scalarTypeAdapters,
       @NotNull final SubscriptionTransport.Factory transportFactory, @NotNull Map<String, Object> connectionParams,
-      @NotNull final Executor dispatcher, long connectionHeartbeatTimeoutMs) {
+      @NotNull final Executor dispatcher, @NotNull final ApolloStore apolloStore, long connectionHeartbeatTimeoutMs) {
     checkNotNull(scalarTypeAdapters, "scalarTypeAdapters == null");
     checkNotNull(transportFactory, "transportFactory == null");
     checkNotNull(dispatcher, "dispatcher == null");
 
+    this.apolloStore = checkNotNull(apolloStore, "apolloStore == null");
     this.scalarTypeAdapters = checkNotNull(scalarTypeAdapters, "scalarTypeAdapters == null");
     this.connectionParams = checkNotNull(connectionParams, "connectionParams == null");
     this.transport = transportFactory.create(new SubscriptionTransportCallback(this, dispatcher));
@@ -308,9 +323,11 @@ public final class RealSubscriptionManager implements SubscriptionManager {
     }
 
     if (subscriptionRecord != null) {
+      ResponseNormalizer<Map<String, Object>> normalizer = apolloStore.networkResponseNormalizer();
+      normalizer.willResolveRootQuery(subscriptionRecord.subscription);
       ResponseFieldMapper responseFieldMapper = responseFieldMapperFactory.create(subscriptionRecord.subscription);
       OperationResponseParser parser = new OperationResponseParser(subscriptionRecord.subscription, responseFieldMapper,
-          scalarTypeAdapters);
+          scalarTypeAdapters, normalizer);
 
       Response response;
       try {
@@ -323,9 +340,42 @@ public final class RealSubscriptionManager implements SubscriptionManager {
         return;
       }
 
+      Set<String> cacheKeys = cacheResponse(Optional.fromNullable(normalizer.records()), UUID.randomUUID());
+      apolloStore.publish(cacheKeys);
       subscriptionRecord.notifyOnResponse(response);
     }
   }
+
+  Set<String> cacheResponse(Optional<Collection<Record>> responseRecords, final UUID responseId) {
+    final Optional<List<Record>> records = responseRecords.map(
+            new Function<Collection<Record>, List<Record>>() {
+              @NotNull @Override public List<Record> apply(@NotNull Collection<Record> records) {
+                final List<Record> result = new ArrayList<>(records.size());
+                for (Record record : records) {
+
+                  result.add(record.toBuilder().mutationId(responseId).build());
+                }
+                return result;
+              }
+            }
+    );
+
+    if (!records.isPresent()) {
+      return Collections.emptySet();
+    }
+
+    try {
+      return apolloStore.writeTransaction(new Transaction<WriteableStore, Set<String>>() {
+        @Nullable
+        @Override public Set<String> execute(WriteableStore cache) {
+          return cache.merge(records.get(), CacheHeaders.NONE);
+        }
+      });
+    } catch (Exception e) {
+      return Collections.emptySet();
+    }
+  }
+
 
   private void onConnectionAcknowledgeServerMessage() {
     timer.cancelTask(CONNECTION_ACKNOWLEDGE_TIMEOUT_TIMER_TASK_ID);

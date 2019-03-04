@@ -542,7 +542,7 @@ public final class ApolloClient implements ApolloQueryCall.Factory, ApolloMutati
       Optional<SubscriptionTransport.Factory> subscriptionTransportFactory = this.subscriptionTransportFactory;
       if (subscriptionTransportFactory.isPresent()) {
         subscriptionManager = new RealSubscriptionManager(scalarTypeAdapters, subscriptionTransportFactory.get(),
-            subscriptionConnectionParams.or(Collections.<String, Object>emptyMap()), dispatcher,
+            subscriptionConnectionParams.or(Collections.<String, Object>emptyMap()), dispatcher, apolloStore,
             subscriptionHeartbeatTimeout);
       }
 
