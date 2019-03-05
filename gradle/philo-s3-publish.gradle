@@ -7,9 +7,8 @@
 // 1) Make sure version name is as desired (VERSION_NAME in gradle.properties)
 // 2) Build and push:
 //
-//   ./gradlew clean :apollo-android-support:build :apollo-android-support:publish
-//   cd ./apollo-android-support/build
-//   aws s3 cp --recursive repo s3://philo-artifacts/maven
+//   ./gradlew  clean :apollo-android-support:publish :apollo-runtime:publish :apollo-api:publish :apollo-gradle-plugin:publish :apollo-compiler:publish :apollo-http-cache:publish
+//   for d in `find . -type d -name build`; do test -d ${d}/repo && cd ${d} && aws s3 cp --recursive repo s3://philo-artifacts/maven && cd - ; donecd ./apollo-android-support/build
 //
 //
 apply plugin: 'maven-publish'
@@ -21,7 +20,13 @@ publishing {
             groupId = GROUP
             version = VERSION_NAME
 
-            artifact bundleReleaseAar
+            if (POM_PACKAGING == "aar") {
+                artifact bundleReleaseAar
+            } else {
+                artifact jar
+                artifact sourcesJar
+            }
+
 
             // We must do extra work to include dependencies into the POM.
             //
@@ -59,8 +64,12 @@ publishing {
                     }
                 }
                 configurations.compile.getAllDependencies().each { dep -> addDependency(dep, "compile") }
-                configurations.api.getAllDependencies().each { dep -> addDependency(dep, "compile") }
-                configurations.implementation.getAllDependencies().each { dep -> addDependency(dep, "runtime") }
+                if (configurations.hasProperty('api')) {
+                    configurations.api.getAllDependencies().each { dep -> addDependency(dep, "compile") }
+                }
+                if (configurations.hasProperty('implementation')) {
+                    configurations.implementation.getAllDependencies().each { dep -> addDependency(dep, "runtime") }
+                }
             }
         }
     }
