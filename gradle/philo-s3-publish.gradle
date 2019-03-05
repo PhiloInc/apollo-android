@@ -1,0 +1,81 @@
+//
+// Philo custom configuration For publishing to S3 Maven "repository"
+//
+// We just use the apollo-android-support subproject. To build
+// and push to S3:
+//
+// 1) Make sure version name is as desired (VERSION_NAME in gradle.properties)
+// 2) Build and push:
+//
+//   ./gradlew  clean :apollo-android-support:publish :apollo-runtime:publish :apollo-api:publish :apollo-gradle-plugin:publish :apollo-compiler:publish :apollo-http-cache:publish
+//   for d in `find . -type d -name build`; do test -d ${d}/repo && cd ${d} && aws s3 cp --recursive repo s3://philo-artifacts/maven && cd - ; donecd ./apollo-android-support/build
+//
+//
+apply plugin: 'maven-publish'
+
+publishing {
+    publications {
+        "maven${POM_ARTIFACT_ID.capitalize()}Aar"(MavenPublication) {
+            artifactId = POM_ARTIFACT_ID
+            groupId = GROUP
+            version = VERSION_NAME
+
+            if (POM_PACKAGING == "aar") {
+                artifact bundleReleaseAar
+            } else {
+                artifact jar
+                artifact sourcesJar
+            }
+
+
+            // We must do extra work to include dependencies into the POM.
+            //
+            // There is a project designed to help with this
+            // (https://github.com/wupdigital/android-maven-publish) but I
+            // could not get it to work in a reasonable amount of time.
+            //
+            // See https://stackoverflow.com/a/42160584
+            pom.withXml {
+                final dependenciesNode = asNode().appendNode('dependencies')
+
+                ext.addDependency = { Dependency dep, String scope ->
+                    if (dep.group == null || dep.version == null || dep.name == null || dep.name == "unspecified") {
+                        return // ignore invalid dependencies
+                    }
+
+                    final dependencyNode = dependenciesNode.appendNode('dependency')
+                    dependencyNode.appendNode('groupId', dep.group)
+                    dependencyNode.appendNode('artifactId', dep.name)
+                    dependencyNode.appendNode('version', dep.version)
+                    dependencyNode.appendNode('scope', scope)
+
+                    if (!dep.transitive) {
+                        // If this dependency is transitive, we should force exclude all its dependencies them from the POM
+                        final exclusionNode = dependencyNode.appendNode('exclusions').appendNode('exclusion')
+                        exclusionNode.appendNode('groupId', '*')
+                        exclusionNode.appendNode('artifactId', '*')
+                    } else if (!dep.properties.excludeRules.empty) {
+                        // Otherwise add specified exclude rules
+                        final exclusionNode = dependencyNode.appendNode('exclusions').appendNode('exclusion')
+                        dep.properties.excludeRules.each { ExcludeRule rule ->
+                            exclusionNode.appendNode('groupId', rule.group ?: '*')
+                            exclusionNode.appendNode('artifactId', rule.module ?: '*')
+                        }
+                    }
+                }
+                configurations.compile.getAllDependencies().each { dep -> addDependency(dep, "compile") }
+                if (configurations.hasProperty('api')) {
+                    configurations.api.getAllDependencies().each { dep -> addDependency(dep, "compile") }
+                }
+                if (configurations.hasProperty('implementation')) {
+                    configurations.implementation.getAllDependencies().each { dep -> addDependency(dep, "runtime") }
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            url = "$buildDir/repo"
+        }
+    }
+}
