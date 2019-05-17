@@ -1,6 +1,8 @@
 package com.apollographql.apollo.subscription;
 
 import java.lang.ref.WeakReference;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.jetbrains.annotations.NotNull;
@@ -146,13 +148,23 @@ public final class WebSocketSubscriptionTransport implements SubscriptionTranspo
     private final Request webSocketRequest;
     private final WebSocket.Factory webSocketConnectionFactory;
 
-    public Factory(@NotNull String webSocketUrl, @NotNull WebSocket.Factory webSocketConnectionFactory) {
-      this.webSocketRequest = new Request.Builder()
-          .url(checkNotNull(webSocketUrl, "webSocketUrl == null"))
-          .addHeader("Sec-WebSocket-Protocol", "graphql-ws")
-          .addHeader("Cookie", "")
-          .build();
+    public Factory(@NotNull String webSocketUrl, @NotNull WebSocket.Factory webSocketConnectionFactory,
+                   @NotNull Map<String, String> additionalHeaders) {
+      Request.Builder requestBuilder =  new Request.Builder()
+              .url(checkNotNull(webSocketUrl, "webSocketUrl == null"))
+              .addHeader("Sec-WebSocket-Protocol", "graphql-ws")
+              .addHeader("Cookie", "");
+
+      for (String k : additionalHeaders.keySet()) {
+        requestBuilder.addHeader(k, additionalHeaders.get(k));
+      }
+
+      this.webSocketRequest = requestBuilder.build();
       this.webSocketConnectionFactory = checkNotNull(webSocketConnectionFactory, "webSocketConnectionFactory == null");
+    }
+
+    public Factory(@NotNull String webSocketUrl, @NotNull WebSocket.Factory webSocketConnectionFactory) {
+      this(webSocketUrl, webSocketConnectionFactory, new HashMap<String, String>());
     }
 
     @Override
