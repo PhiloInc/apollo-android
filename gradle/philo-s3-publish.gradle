@@ -11,6 +11,10 @@
 //   for d in `find . -type d -name build`; do test -d ${d}/repo && cd ${d} && aws s3 cp --recursive repo s3://philo-artifacts/maven && cd - ; donecd ./apollo-android-support/build
 //
 //
+//  Note that you must be running Java 8 or lower eg:
+//
+//  export JAVA_HOME=/Applications/Android\ Studio.app/Contents/jre/jdk/Contents/Home/
+//
 apply plugin: 'maven-publish'
 
 publishing {
